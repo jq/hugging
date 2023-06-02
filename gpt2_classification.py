@@ -1,7 +1,6 @@
 from datasets import load_dataset
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
-# from huggingface_hub import notebook_login
-# notebook_login()
+
 
 MODEL = 'distilgpt2'
 tokenizer = AutoTokenizer.from_pretrained(MODEL,use_fast=True)
@@ -17,6 +16,7 @@ import torch
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 tokenizer.pad_token = tokenizer.eos_token
+model.config.pad_token_id = model.config.eos_token_id
 # if tokenizer._pad_token is None:
 #     pad_token_id = tokenizer.convert_tokens_to_ids('[PAD]')
 #     tokenizer.pad_token = '[PAD]'
@@ -48,15 +48,15 @@ def compute_metrics(eval_pred):
     predictions = np.argmax(predictions, axis=1)
 
     return accuracy.compute(predictions=predictions, references=labels)
-num_train_epochs = 1
+num_train_epochs = 4
 learning_rate = 1e-5
 warmup_steps = int(len(train_data) * num_train_epochs * 0.1)  # 10% of train data for warm-up
 total_steps = len(train_data) * num_train_epochs
 training_args = TrainingArguments(
     output_dir="jq_emo_gpt",
     learning_rate=learning_rate,
-    per_device_train_batch_size=1,
-    per_device_eval_batch_size=1,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=64,
     num_train_epochs=num_train_epochs,
     weight_decay=0.01,
     evaluation_strategy="epoch",
@@ -64,7 +64,6 @@ training_args = TrainingArguments(
     warmup_steps=warmup_steps,
     load_best_model_at_end=True,
     push_to_hub=True,
-    use_mps_device=True,
 )
 
 import torch
@@ -87,4 +86,4 @@ trainer = Trainer(
 )
 print("Training...")
 trainer.train()
-#trainer.push_to_hub()
+trainer.push_to_hub()
