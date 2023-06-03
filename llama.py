@@ -19,7 +19,8 @@ label2id = {'sadness':0, 'joy':1, 'love':2, 'anger':3, 'fear':4, 'surprise':5}
 model = LlamaForCausalLM.from_pretrained(
     MODEL, num_labels=len(id2label), id2label=id2label, label2id=label2id
 )
-model.config.pad_token_id = model.config.eos_token_id
+# https://github.com/huggingface/transformers/issues/22546
+model.config.pad_token_id = 2
 print('model token ', model.config.pad_token_id)
 
 import torch
