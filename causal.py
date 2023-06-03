@@ -22,7 +22,6 @@ tokenized_eli5 = eli5.map(
 
 block_size = 128
 
-
 def group_texts(examples):
     # Concatenate all texts.
     concatenated_examples = {k: sum(examples[k], []) for k in examples.keys()}
