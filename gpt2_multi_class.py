@@ -36,9 +36,6 @@ def preprocess_data(examples):
     encoding = tokenizer(text, padding="max_length", truncation=True, max_length=128)
     # add labels
     labels_batch = examples["labels"]
-    # [[27]]
-    # print('labels_batch ', labels_batch)
-    # create numpy array of shape (batch_size, num_labels)
     labels_tensor = torch.zeros((len(text), len(labels)), dtype=torch.float)
 
     # fill numpy array
@@ -46,21 +43,12 @@ def preprocess_data(examples):
         for label in label_list:
             labels_tensor[i, label] = 1
 
-    # print('labels_matrix ', labels_tensor)
-    # labels_list = labels_tensor.numpy().tolist()
-
     encoding["labelx"] = labels_tensor
-    # print('encoding after', encoding)
 
     return encoding
-def tokenize(batch):
-    return tokenizer(batch['text'], padding=True, truncation=True)
-
-# {'text': "My favourite food is anything I didn't have to cook myself.", 'labels': [27], 'id': 'eebbqej'}
 
 train_data = train_data.map(preprocess_data, batched=True, remove_columns=train_data.column_names)
 train_data = train_data.rename_column("labelx", "labels")
-print('train_data',train_data[0])
 
 eval_data = eval_data.map(preprocess_data, batched=True, remove_columns=eval_data.column_names)
 eval_data = eval_data.rename_column("labelx", "labels")
@@ -107,43 +95,72 @@ def compute_metrics(p: EvalPrediction):
         labels=p.label_ids)
     return result
 
-num_train_epochs = 1
-learning_rate = 1e-5
-warmup_steps = int(len(train_data) * num_train_epochs * 0.1)  # 10% of train data for warm-up
-total_steps = len(train_data) * num_train_epochs
 training_args = TrainingArguments(
     output_dir="go_emo_gpt",
-    learning_rate=learning_rate,
-    per_device_train_batch_size=2,
     per_device_eval_batch_size=64,
-    num_train_epochs=num_train_epochs,
     weight_decay=0.01,
     evaluation_strategy="epoch",
     save_strategy="epoch",
-    warmup_steps=warmup_steps,
+
     load_best_model_at_end=True,
     metric_for_best_model="f1",
     push_to_hub=True,
 )
 
-import torch
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
-lr_scheduler = get_linear_schedule_with_warmup(
-    optimizer=optimizer,
-    num_warmup_steps=warmup_steps,
-    num_training_steps=total_steps
-)
+hyperparameters_grid = {
+    "learning_rate": [1e-5, 2e-5, 5e-6],
+    "num_train_epochs": [3, 4, 5, 10],
+    "per_device_train_batch_size": [1, 2, 4, ],
+}
+import itertools
+keys, values = zip(*hyperparameters_grid.items())
+permutations_dicts = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_data,
-    eval_dataset=eval_data,
-    tokenizer=tokenizer,
-    data_collator=data_collator,
-    compute_metrics=compute_metrics,
-    optimizers=(optimizer, lr_scheduler),
-)
-print("Training...")
-trainer.train()
+
+def train_with_hyperparameters(hyperparameters):
+    num_train_epochs = hyperparameters["num_train_epochs"]
+
+    training_args.learning_rate = hyperparameters["learning_rate"]
+    training_args.num_train_epochs = num_train_epochs
+    training_args.per_device_train_batch_size = hyperparameters["per_device_train_batch_size"]
+    warmup_steps = int(len(train_data) * num_train_epochs * 0.1)  # 10% of train data for warm-up
+    total_steps = len(train_data) * num_train_epochs
+    training_args.warmup_steps=warmup_steps,
+    optimizer = torch.optim.AdamW(model.parameters(), lr=training_args.learning_rate)
+    lr_scheduler = get_linear_schedule_with_warmup(
+        optimizer=optimizer,
+        num_warmup_steps=warmup_steps,
+        num_training_steps=total_steps
+    )
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_data,
+        eval_dataset=eval_data,
+        tokenizer=tokenizer,
+        data_collator=data_collator,
+        compute_metrics=compute_metrics,
+        optimizers=(optimizer, lr_scheduler),
+    )
+
+    trainer.train()
+    eval_result = trainer.evaluate()
+    return eval_result, trainer
+
+best_metric = float("-inf")
+best_hyperparameters = None
+best_trainer = None
+
+for hyperparameters in permutations_dicts:
+    eval_result, trainer = train_with_hyperparameters(hyperparameters)
+    if eval_result["f1"] > best_metric:
+        best_metric = eval_result["f1"]
+        best_hyperparameters = hyperparameters
+        best_trainer = trainer
+
+print(f"Best F1 score: {best_metric}")
+print(f"Best hyperparameters: {best_hyperparameters}")
+best_trainer.push_to_hub()
+
 #trainer.push_to_hub()
