@@ -132,6 +132,8 @@ def train_with_hyperparameters(hyperparameters):
         num_warmup_steps=warmup_steps,
         num_training_steps=total_steps
     )
+    from transformers import EarlyStoppingCallback
+    callbacks = [EarlyStoppingCallback(early_stopping_patience=3)]
 
     trainer = Trainer(
         model=model,
@@ -145,8 +147,11 @@ def train_with_hyperparameters(hyperparameters):
     )
 
     trainer.train()
-    eval_result = trainer.evaluate()
-    return eval_result, trainer
+    print ('log', trainer.state.log_history)
+    f1_scores = trainer.state.log_history[1]['eval_f1']
+    print ('f1', f1_scores)
+    #eval_result = f1_scores # trainer.evaluate()
+    return f1_scores, trainer
 
 best_metric = float("-inf")
 best_hyperparameters = None
@@ -154,8 +159,8 @@ best_trainer = None
 
 for hyperparameters in permutations_dicts:
     eval_result, trainer = train_with_hyperparameters(hyperparameters)
-    if eval_result["f1"] > best_metric:
-        best_metric = eval_result["f1"]
+    if eval_result > best_metric:
+        best_metric = eval_result
         best_hyperparameters = hyperparameters
         best_trainer = trainer
 
